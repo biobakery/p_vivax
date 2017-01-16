@@ -23,15 +23,15 @@ l.clst.pv <- 1:284 %>% lapply(function(i.clst) {
     pf.to.pv(old.ID = T, print.n.match = F) %>% 
     return
 })
-# # of genes with cluster annotation available in Westenberger et al.--------
+# number of genes with cluster annotation available in Westenberger et al.
 # ~60% has annotation
 l.clst.pv %>% unlist %>% intersect(rownames(df.exprs.Westenberger)) %>% 
   length
 l.clst.pv <- l.clst.pv %>% 
   lapply(intersect, rownames(df.exprs.Westenberger))
-#---------------------------------------------------------------------
 
-# by cluster--------------------------------------------------
+
+# by cluster----------------------------------------------------------
 library(gplots)
 df.clst <- read.table('data/network_project/cluster_table_clean.txt',
                       header=T,
@@ -110,29 +110,42 @@ heatmap.2(mat.asex, Rowv = NA, Colv = NA, symm = F,
           col = my.pallete)
 dev.off()
 
-df.exprs.avg <- l.anno.pv %>% sapply(function(i.group){
-  return( df.exprs.Westenberger[rownames(df.exprs.Westenberger) %in% i.group,] %>% 
-    apply(2, mean) 
-  )
-}) %>% data.frame
+# by stage averaging----------------------------------------------------
+df.exprs.avg <- cbind( 
+  c('rings', 'IG', 'MG', 'commit') %>% 
+    sapply(function(i.stage) {
+      df.clst %>% filter(stage == i.stage) %>% '['(, 'cluster') %>% 
+        '['(l.clst.pv, .) %>% unlist %>% unique %>% 
+        '['(df.exprs.Westenberger, ., ) %>% 
+        apply(2, mean) %>% return
+    }) %>% data.frame,
+  c('circulation', 'sequestration') %>% 
+    sapply(function(i.seq) {
+      df.clst %>% filter(stage == 'asex', sequestration == i.seq) %>% '['(, 'cluster') %>% 
+        '['(l.clst.pv, .) %>% unlist %>% unique %>% 
+        '['(df.exprs.Westenberger, ., ) %>% 
+        apply(2, mean) %>% return
+    }) %>% data.frame
+)
 
 df.exprs.avg.long <- gather(df.exprs.avg, 
                             key = stage,
                             value = mean_expression,
-                            asex:rings)
-df.exprs.avg.long$asex_or_gam <- 'gam'
-df.exprs.avg.long$asex_or_gam[df.exprs.avg.long$stage %in% 
-                                  c('asex', 'asexCirc', 'asexSeq')] <- 'asex'
-df.exprs.avg.long$stage <- df.exprs.avg.long$stage %>% factor(
-  levels=c('asex', 'asexCirc', 'asexSeq', 'rings', 'IG', 'IGYG', 'MG', 'commit'))
+                            rings:sequestration) %>% 
+  mutate(stage = factor(stage, 
+                        levels=c('circulation', 'sequestration', 'rings', 
+                                 'IG', 'MG', 'commit')),
+         asex_vs_gam = ifelse(stage %in% c('circulation', 'sequestration'),
+                              'asex', 'gam'))
 
-pdf('result/boxplot_averageByStage_Westenberger.pdf', width=8, height=6)
-ggplot(subset(df.exprs.avg.long, !(stage %in% c('asex', 'IGYG'))),
+pdf('result/Westenberger/boxplot_stage_avg.pdf', width=8, height=6)
+ggplot(df.exprs.avg.long,
        aes(x=stage, y=mean_expression)) +
-  geom_boxplot(aes(color=sample_type), alpha=0.5, outlier.shape = NULL) +
-  geom_point(aes(color=sample_type), position = position_jitterdodge()) +
-  facet_grid(.~asex_or_gam, scale='free_x', space='free_x') +
-  coord_fixed(ratio=1) +
+  geom_boxplot() +
+  # geom_point(aes(color=sample_type), position = position_jitterdodge()) +
+  facet_grid(.~asex_vs_gam, scale='free_x', space='free_x') +
+  # coord_fixed(ratio=1) +
   theme_bw()
 dev.off()
+
 
