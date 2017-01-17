@@ -77,6 +77,8 @@ clst.gam <- read.table('data/network_project/pelleetall_fig6_clsts.txt',
                        header = F,
                        sep = '\t')[, 1]
 mat.gam <- mat.avg.clst.exprs[, match(clst.gam, df.clst$cluster)]
+mat.gam.avg <- mat.gam %>% apply(2, mean) %>% 
+  matrix(nrow = 1, dimnames = list('mean', colnames(mat.gam))) # additional row of mean expression across patients
 colnames(mat.gam) <- clst.gam
 my.breaks <- c(seq(min(mat.gam), median(mat.gam), length.out = 500),
                seq(median(mat.gam), quantile(mat.gam, 0.9), length.out = 401)[-1],
@@ -85,7 +87,11 @@ my.pallete <- greenred(999) # unified color scheme for per-cluster heatmaps
 pdf('result/Westenberger/heatmap_gam_clst_avg.pdf',
     width = 4/nrow(mat.gam)*ncol(mat.gam), 
     height = 8)
-heatmap.2(mat.gam, Rowv = NA, Colv = NA, symm = F, 
+heatmap.2(rbind(mat.gam.avg,
+                matrix(NA, nrow = 1, ncol = ncol(mat.gam.avg),
+                       dimnames = list('', colnames(mat.gam.avg))),
+                mat.gam), 
+          Rowv = NA, Colv = NA, symm = F, 
           dendrogram = 'none', scale = 'none', 
           trace = 'none', symkey = F,
           breaks = my.breaks,
@@ -96,6 +102,8 @@ dev.off()
 clst.asex <- setdiff(df.clst$cluster, clst.gam)
 mat.asex <- mat.avg.clst.exprs[, match(clst.asex, df.clst$cluster)]
 colnames(mat.asex) <- clst.asex
+mat.asex.avg <- mat.asex %>% apply(2, mean) %>% 
+  matrix(nrow = 1, dimnames = list('mean', colnames(mat.asex))) # additional row of mean expression across patients
 my.breaks <- c(seq(min(mat.asex, na.rm = T), median(mat.asex, na.rm = T), length.out = 500),
                seq(median(mat.asex, na.rm = T), quantile(mat.asex, 0.9, na.rm = T), length.out = 401)[-1],
                seq(quantile(mat.asex, 0.9, na.rm = T), max(mat.asex, na.rm = T), length.out = 101)[-1])
@@ -103,11 +111,87 @@ my.pallete <- greenred(999) # unified color scheme for per-cluster heatmaps
 pdf('result/Westenberger/heatmap_asex_clst_avg.pdf',
     width = 1/nrow(mat.asex)*ncol(mat.asex), 
     height = 8)
-heatmap.2(mat.asex, Rowv = NA, Colv = NA, symm = F, 
+heatmap.2(rbind(mat.asex.avg,
+                matrix(NA, nrow = 1, ncol = ncol(mat.asex.avg),
+                       dimnames = list('', colnames(mat.asex.avg))),
+                mat.asex), 
+          Rowv = NA, Colv = NA, symm = F, 
           dendrogram = 'none', scale = 'none', 
           trace = 'none', symkey = F,
           breaks = my.breaks,
           col = my.pallete)
+dev.off()
+
+
+# identify breakpoint in asex data ----------------------------------------
+library(fpc)
+mat.asex.complete <- mat.asex %>% 
+  apply(2, function(x) !any(is.na(x))) %>% 
+  '['(mat.asex, ,.)
+dist.asex <-  mat.asex.complete %>% t %>% dist
+mat.summary <- 2:ncol(mat.asex.complete) %>% sapply(function(i.col) {
+  c(rep(1, i.col - 1), rep(2, ncol(mat.asex.complete) - i.col + 1)) %>% 
+    cluster.stats(d = dist.asex, clustering = ., 
+                  silhouette = TRUE,
+                  wgap=FALSE, 
+                  sepindex=FALSE,
+                  sepwithnoise=FALSE) %>% 
+    '['(c('within.cluster.ss', 'avg.silwidth', 'ch')) %>% 
+    unlist %>% 
+    return
+})
+df.summary <- data.frame(t(mat.summary), 
+                         cluster = factor(colnames(mat.asex.complete)[-1],
+                                          levels = colnames(mat.asex.complete)[-1])
+                         )
+pdf('result/Westenberger/asex_break_summary.pdf', width = 12, height = 10)
+df.summary %>% 
+  gather(key = statistic, value = value, within.cluster.ss:ch) %>% 
+  ggplot(aes(x = as.numeric(cluster), y = value)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(name = 'cluster', 
+                     breaks = as.numeric(df.summary$cluster), 
+                     labels = levels(df.summary$cluster)) +
+  facet_wrap(~statistic, ncol = 1, scales = 'free_y') +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90, size=4),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+dev.off()
+
+dist.asex.avg <-  mat.asex.avg %>% 
+  apply(2, function(x) !any(is.na(x))) %>% 
+  '['(mat.asex.avg, ,.) %>% dist
+mat.summary.avg <- 2:ncol(mat.asex.complete) %>% sapply(function(i.col) {
+  c(rep(1, i.col - 1), rep(2, ncol(mat.asex.complete) - i.col + 1)) %>% 
+    cluster.stats(d = dist.asex.avg, clustering = ., 
+                  silhouette = TRUE,
+                  wgap=FALSE, 
+                  sepindex=FALSE,
+                  sepwithnoise=FALSE) %>% 
+    '['(c('within.cluster.ss', 'avg.silwidth', 'ch')) %>% 
+    unlist %>% 
+    return
+})
+df.summary.avg <- data.frame(t(mat.summary.avg), 
+                         cluster = factor(colnames(mat.asex.complete)[-1],
+                                          levels = colnames(mat.asex.complete)[-1])
+)
+pdf('result/Westenberger/asex_break_summary_avg.pdf', width = 12, height = 10)
+df.summary.avg %>% 
+  gather(key = statistic, value = value, within.cluster.ss:ch) %>% 
+  ggplot(aes(x = as.numeric(cluster), y = value)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(name = 'cluster', 
+                     breaks = as.numeric(df.summary.avg$cluster), 
+                     labels = levels(df.summary.avg$cluster)) +
+  facet_wrap(~statistic, ncol = 1, scales = 'free_y') +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90, size=4),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
 dev.off()
 
 # by stage averaging----------------------------------------------------
