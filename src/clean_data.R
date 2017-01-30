@@ -62,7 +62,9 @@ dir.create('data/network_project/cluster_genes_old_id_clean/', showWarnings = F)
                 )
 })
 
-# Wetenberger expression data
+
+# Wetenberger expression data ---------------------------------------------
+
 df.exprs.Westenberger <- read.xlsx2('data/Westenberger_et_al.xls',
                                     sheetIndex = 1,
                                     startRow = 3,
@@ -85,9 +87,55 @@ par(mar=c(14,3,1,1))
 boxplot(log(mat.exprs.Westenberger.clean), las=2) 
 dev.off()
 
-# cleaner column names
+
+# cleaner column names ----------------------------------------------------
+
 colnames(mat.exprs.Westenberger.clean) <- colnames(mat.exprs.Westenberger.clean) %>% 
   gsub('^.*\\: ', '', ., perl=T)
 # shifting columns to move the asexual blood samples first
 mat.exprs.Westenberger.clean <- mat.exprs.Westenberger.clean[, c(3:14, 1:2)]
 write.csv(mat.exprs.Westenberger.clean, file = 'data/Westenberger_et_al_clean.csv')
+
+# Boopathi et al. data, in GEO formatting ---------------------------------
+source('src/source.R')
+library(ggplot2)
+
+eset.Boopathi <- getGEO(filename = 'data/GSE55644_series_matrix.txt.gz', getGPL = F)
+exprs.Boopathi <- exprs(eset.Boopathi)
+# make sure that per-probe expressions are transformed and quantile-normalized.
+exprs.Boopathi %>% boxplot()
+exprs.Boopathi %>% apply(1, function(x) c(mean(x), sd(x))) %>% t %>% plot
+
+# platform annotation
+gpl.Boopathi <- getGEO(filename = 'data/GPL18382.soft')
+df.gpl <- gpl.Boopathi %>% Table
+# total of 5336 genes
+df.gpl$ORF %>% grepl('PVX_', x = ., fixed = T) %>% '['(df.gpl$ORF, .) %>% 
+  unique %>% length
+# PV genes with annotation from Pelle et al.
+genes.pv.pelle <- 1:284 %>% lapply(function(i.clst) {
+  i.clst %>% 
+    paste0('data/network_project/cluster_genes_old_id_clean/clst_', ., '.txt') %>% 
+    read.table(header = F, stringsAsFactors = F) %>% '['(, 1) %>% 
+    pf.to.pv(old.ID = T, print.n.match = F) %>% 
+    return
+}) %>% unlist %>% unique
+intersect(genes.pv.pelle, df.gpl$ORF) %>% length # 3278 has representation in 
+                                                 # the array
+df.perProbeCorr <- intersect(genes.pv.pelle, df.gpl$ORF[duplicated(df.gpl$ORF)]) %>% 
+  lapply(function(gene) {
+    df.gpl$ID[df.gpl$ORF %in% gene] %>% '['(exprs.Boopathi, ., ) %>% t %>% 
+      cor %>% (function(x) x[lower.tri(x, diag = F)]) %>% 
+      data.frame(gene = gene, cor = .) %>% return
+  }) %>% Reduce('rbind', .)
+genes.ordered <- unique(df.perProbeCorr$gene) %>% sapply(function(gene) {
+  (df.perProbeCorr$gene %in% gene) %>% subset(df.perProbeCorr, .) %>% 
+    '$'(`cor`) %>% min
+}) %>% order(decreasing = T) %>% '['(unique(df.perProbeCorr$gene), .)
+df.perProbeCorr$gene <- factor(df.perProbeCorr$gene, levels = genes.ordered)
+dir.create2('result/Boopathi/data_checking/') %>% 
+  paste0('per_gene_boxplot.jpg') %>% 
+jpeg(width = 480, height = 3500)
+ggplot(df.perProbeCorr, aes(x = gene, y = cor)) + geom_boxplot() + 
+  coord_flip() + theme_bw()
+dev.off()
